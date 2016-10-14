@@ -10,13 +10,13 @@ module DeviseTokenAuth
 
     def create
       # Check
-      field = (resource_params.keys.map(&:to_sym) & resource_class.authentication_keys).first
+      field = (user_resource_params.keys.map(&:to_sym) & user_resource_class.authentication_keys).first
 
-      @resource = nil
+      @user_resource = nil
       if field
-        q_value = resource_params[field]
+        q_value = user_resource_params[field]
 
-        if resource_class.case_insensitive_keys.include?(field)
+        if user_resource_class.case_insensitive_keys.include?(field)
           q_value.downcase!
         end
 
@@ -26,26 +26,26 @@ module DeviseTokenAuth
           q = "BINARY " + q
         end
 
-        @resource = resource_class.where(q, q_value).first
+        @user_resource = user_resource_class.where(q, q_value).first
       end
 
-      if @resource and valid_params?(field, q_value) and @resource.valid_password?(resource_params[:password]) and (!@resource.respond_to?(:active_for_authentication?) or @resource.active_for_authentication?)
+      if @user_resource and valid_params?(field, q_value) and @user_resource.valid_password?(user_resource_params[:password]) and (!@user_resource.respond_to?(:active_for_authentication?) or @user_resource.active_for_authentication?)
         # create client id
         @client_id = SecureRandom.urlsafe_base64(nil, false)
         @token     = SecureRandom.urlsafe_base64(nil, false)
 
-        @resource.tokens[@client_id] = {
+        @user_resource.tokens[@client_id] = {
           token: BCrypt::Password.create(@token),
           expiry: (Time.now + DeviseTokenAuth.token_lifespan).to_i
         }
-        @resource.save
+        @user_resource.save
 
-        sign_in(:user, @resource, store: false, bypass: false)
+        sign_in(:user, @user_resource, store: false, bypass: false)
 
-        yield @resource if block_given?
+        yield @user_resource if block_given?
 
         render_create_success
-      elsif @resource and not (!@resource.respond_to?(:active_for_authentication?) or @resource.active_for_authentication?)
+      elsif @user_resource and not (!@user_resource.respond_to?(:active_for_authentication?) or @user_resource.active_for_authentication?)
         render_create_error_not_confirmed
       else
         render_create_error_bad_credentials
@@ -54,7 +54,7 @@ module DeviseTokenAuth
 
     def destroy
       # remove auth instance variables so that after_action does not run
-      user = remove_instance_variable(:@resource) if @resource
+      user = remove_instance_variable(:@user_resource) if @user_resource
       client_id = remove_instance_variable(:@client_id) if @client_id
       remove_instance_variable(:@token) if @token
 
@@ -73,7 +73,7 @@ module DeviseTokenAuth
     protected
 
     def valid_params?(key, val)
-      resource_params[:password] && key && val
+      user_resource_params[:password] && key && val
     end
 
     def get_auth_params
@@ -81,16 +81,16 @@ module DeviseTokenAuth
       auth_val = nil
 
       # iterate thru allowed auth keys, use first found
-      resource_class.authentication_keys.each do |k|
-        if resource_params[k]
-          auth_val = resource_params[k]
+      user_resource_class.authentication_keys.each do |k|
+        if user_resource_params[k]
+          auth_val = user_resource_params[k]
           auth_key = k
           break
         end
       end
 
       # honor devise configuration for case_insensitive_keys
-      if resource_class.case_insensitive_keys.include?(auth_key)
+      if user_resource_class.case_insensitive_keys.include?(auth_key)
         auth_val.downcase!
       end
 
@@ -108,14 +108,14 @@ module DeviseTokenAuth
 
     def render_create_success
       render json: {
-        data: resource_data(resource_json: @resource.token_validation_response)
+        data: user_resource_data(user_resource_json: @user_resource.token_validation_response)
       }
     end
 
     def render_create_error_not_confirmed
       render json: {
         success: false,
-        errors: [ I18n.t("devise_token_auth.sessions.not_confirmed", email: @resource.email) ]
+        errors: [ I18n.t("devise_token_auth.sessions.not_confirmed", email: @user_resource.email) ]
       }, status: 401
     end
 
@@ -140,8 +140,8 @@ module DeviseTokenAuth
 
     private
 
-    def resource_params
-      params.permit(*params_for_resource(:sign_in))
+    def user_resource_params
+      params.permit(*params_for_user_resource(:sign_in))
     end
 
   end

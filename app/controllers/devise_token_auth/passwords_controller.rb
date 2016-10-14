@@ -6,7 +6,7 @@ module DeviseTokenAuth
     # this action is responsible for generating password reset tokens and
     # sending emails
     def create
-      unless resource_params[:email]
+      unless user_resource_params[:email]
         return render_create_error_missing_email
       end
 
@@ -28,10 +28,10 @@ module DeviseTokenAuth
       end
 
       # honor devise configuration for case_insensitive_keys
-      if resource_class.case_insensitive_keys.include?(:email)
-        @email = resource_params[:email].downcase
+      if user_resource_class.case_insensitive_keys.include?(:email)
+        @email = user_resource_params[:email].downcase
       else
-        @email = resource_params[:email]
+        @email = user_resource_params[:email]
       end
 
       q = "uid = ? AND provider='email'"
@@ -41,24 +41,24 @@ module DeviseTokenAuth
         q = "BINARY uid = ? AND provider='email'"
       end
 
-      @resource = resource_class.where(q, @email).first
+      @user_resource = user_resource_class.where(q, @email).first
 
       @errors = nil
       @error_status = 400
 
-      if @resource
-        yield @resource if block_given?
-        @resource.send_reset_password_instructions({
+      if @user_resource
+        yield @user_resource if block_given?
+        @user_resource.send_reset_password_instructions({
           email: @email,
           provider: 'email',
           redirect_url: @redirect_url,
           client_config: params[:config_name]
         })
 
-        if @resource.errors.empty?
+        if @user_resource.errors.empty?
           return render_create_success
         else
-          @errors = @resource.errors
+          @errors = @user_resource.errors
         end
       else
         @errors = [I18n.t("devise_token_auth.passwords.user_not_found", email: @email)]
@@ -72,31 +72,31 @@ module DeviseTokenAuth
 
     # this is where users arrive after visiting the password reset confirmation link
     def edit
-      @resource = resource_class.reset_password_by_token({
-        reset_password_token: resource_params[:reset_password_token]
+      @user_resource = user_resource_class.reset_password_by_token({
+        reset_password_token: user_resource_params[:reset_password_token]
       })
 
-      if @resource and @resource.id
+      if @user_resource and @user_resource.id
         client_id  = SecureRandom.urlsafe_base64(nil, false)
         token      = SecureRandom.urlsafe_base64(nil, false)
         token_hash = BCrypt::Password.create(token)
         expiry     = (Time.now + DeviseTokenAuth.token_lifespan).to_i
 
-        @resource.tokens[client_id] = {
+        @user_resource.tokens[client_id] = {
           token:  token_hash,
           expiry: expiry
         }
 
         # ensure that user is confirmed
-        @resource.skip_confirmation! if @resource.devise_modules.include?(:confirmable) && !@resource.confirmed_at
+        @user_resource.skip_confirmation! if @user_resource.devise_modules.include?(:confirmable) && !@user_resource.confirmed_at
 
         # allow user to change password once without current_password
-        @resource.allow_password_change = true;
+        @user_resource.allow_password_change = true;
 
-        @resource.save!
-        yield @resource if block_given?
+        @user_resource.save!
+        yield @user_resource if block_given?
 
-        redirect_to(@resource.build_auth_url(params[:redirect_url], {
+        redirect_to(@user_resource.build_auth_url(params[:redirect_url], {
           token:          token,
           client_id:      client_id,
           reset_password: true,
@@ -109,24 +109,24 @@ module DeviseTokenAuth
 
     def update
       # make sure user is authorized
-      unless @resource
+      unless @user_resource
         return render_update_error_unauthorized
       end
 
       # make sure account doesn't use oauth2 provider
-      unless @resource.provider == 'email'
+      unless @user_resource.provider == 'email'
         return render_update_error_password_not_required
       end
 
       # ensure that password params were sent
-      unless password_resource_params[:password] and password_resource_params[:password_confirmation]
+      unless password_user_resource_params[:password] and password_user_resource_params[:password_confirmation]
         return render_update_error_missing_password
       end
 
-      if @resource.send(resource_update_method, password_resource_params)
-        @resource.allow_password_change = false
+      if @user_resource.send(user_resource_update_method, password_user_resource_params)
+        @user_resource.allow_password_change = false
 
-        yield @resource if block_given?
+        yield @user_resource if block_given?
         return render_update_success
       else
         return render_update_error
@@ -135,8 +135,8 @@ module DeviseTokenAuth
 
     protected
 
-    def resource_update_method
-      if DeviseTokenAuth.check_current_password_before_update == false or @resource.allow_password_change == true
+    def user_resource_update_method
+      if DeviseTokenAuth.check_current_password_before_update == false or @user_resource.allow_password_change == true
         "update_attributes"
       else
         "update_with_password"
@@ -160,7 +160,7 @@ module DeviseTokenAuth
     def render_create_error_not_allowed_redirect_url
       render json: {
         status: 'error',
-        data:   resource_data,
+        data:   user_resource_data,
         errors: [I18n.t("devise_token_auth.passwords.not_allowed_redirect_url", redirect_url: @redirect_url)]
       }, status: 422
     end
@@ -168,7 +168,7 @@ module DeviseTokenAuth
     def render_create_success
       render json: {
         success: true,
-        data: resource_data,
+        data: user_resource_data,
         message: I18n.t("devise_token_auth.passwords.sended", email: @email)
       }
     end
@@ -194,7 +194,7 @@ module DeviseTokenAuth
     def render_update_error_password_not_required
       render json: {
         success: false,
-        errors: [I18n.t("devise_token_auth.passwords.password_not_required", provider: @resource.provider.humanize)]
+        errors: [I18n.t("devise_token_auth.passwords.password_not_required", provider: @user_resource.provider.humanize)]
       }, status: 422
     end
 
@@ -208,7 +208,7 @@ module DeviseTokenAuth
     def render_update_success
       render json: {
         success: true,
-        data: resource_data,
+        data: user_resource_data,
         message: I18n.t("devise_token_auth.passwords.successfully_updated")
       }
     end
@@ -216,18 +216,18 @@ module DeviseTokenAuth
     def render_update_error
       return render json: {
         success: false,
-        errors: resource_errors
+        errors: user_resource_errors
       }, status: 422
     end
 
     private
 
-    def resource_params
+    def user_resource_params
       params.permit(:email, :password, :password_confirmation, :current_password, :reset_password_token)
     end
 
-    def password_resource_params
-      params.permit(*params_for_resource(:account_update))
+    def password_user_resource_params
+      params.permit(*params_for_user_resource(:account_update))
     end
 
   end

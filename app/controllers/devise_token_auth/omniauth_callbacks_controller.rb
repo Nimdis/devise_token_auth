@@ -9,10 +9,10 @@ module DeviseTokenAuth
     # not support multiple models, so we must resort to this terrible hack.
     def redirect_callbacks
 
-      # derive target redirect route from 'resource_class' param, which was set
+      # derive target redirect route from 'user_resource_class' param, which was set
       # before authentication.
       devise_mapping = [request.env['omniauth.params']['namespace_name'],
-                        request.env['omniauth.params']['resource_class'].underscore.gsub('/', '_')].compact.join('_')
+                        request.env['omniauth.params']['user_resource_class'].underscore.gsub('/', '_')].compact.join('_')
       redirect_route = "#{request.protocol}#{request.host_with_port}/#{Devise.mappings[devise_mapping.to_sym].fullpath}/#{params[:provider]}/callback"
 
       # preserve omniauth info for success route. ignore 'extra' in twitter
@@ -24,23 +24,23 @@ module DeviseTokenAuth
     end
 
     def omniauth_success
-      get_resource_from_auth_hash
+      get_user_resource_from_auth_hash
       create_token_info
-      set_token_on_resource
+      set_token_on_user_resource
       create_auth_params
 
-      if resource_class.devise_modules.include?(:confirmable)
+      if user_resource_class.devise_modules.include?(:confirmable)
         # don't send confirmation email!!!
-        @resource.skip_confirmation!
+        @user_resource.skip_confirmation!
       end
 
-      sign_in(:user, @resource, store: false, bypass: false)
+      sign_in(:user, @user_resource, store: false, bypass: false)
 
-      @resource.save!
+      @user_resource.save!
 
-      yield @resource if block_given?
+      yield @user_resource if block_given?
 
-      render_data_or_redirect('deliverCredentials', @auth_params.as_json, @resource.as_json)
+      render_data_or_redirect('deliverCredentials', @auth_params.as_json, @user_resource.as_json)
     end
 
     def omniauth_failure
@@ -66,7 +66,7 @@ module DeviseTokenAuth
           @_omniauth_params ||= session.delete('dta.omniauth.params')
           @_omniauth_params
         elsif params['omniauth_window_type']
-          @_omniauth_params = params.slice('omniauth_window_type', 'auth_origin_url', 'resource_class', 'origin')
+          @_omniauth_params = params.slice('omniauth_window_type', 'auth_origin_url', 'user_resource_class', 'origin')
         else
           @_omniauth_params = {}
         end
@@ -87,7 +87,7 @@ module DeviseTokenAuth
 
     # derive allowed params from the standard devise parameter sanitizer
     def whitelisted_params
-      whitelist = params_for_resource(:sign_up)
+      whitelist = params_for_user_resource(:sign_up)
 
       whitelist.inject({}){|coll, key|
         param = omniauth_params[key.to_s]
@@ -98,18 +98,18 @@ module DeviseTokenAuth
       }
     end
 
-    def resource_class(mapping = nil)
-      if omniauth_params['resource_class']
-        omniauth_params['resource_class'].constantize
-      elsif params['resource_class']
-        params['resource_class'].constantize
+    def user_resource_class(mapping = nil)
+      if omniauth_params['user_resource_class']
+        omniauth_params['user_resource_class'].constantize
+      elsif params['user_resource_class']
+        params['user_resource_class'].constantize
       else
-        raise "No resource_class found"
+        raise "No user_resource_class found"
       end
     end
 
-    def resource_name
-      resource_class
+    def user_resource_name
+      user_resource_class
     end
 
     def omniauth_window_type
@@ -136,7 +136,7 @@ module DeviseTokenAuth
 
     # ensure that this controller responds to :devise_controller? conditionals.
     # this is used primarily for access to the parameter sanitizers.
-    def assert_is_devise_resource!
+    def assert_is_devise_user_resource!
       true
     end
 
@@ -144,7 +144,7 @@ module DeviseTokenAuth
     def devise_mapping
       if omniauth_params
         Devise.mappings[[omniauth_params['namespace_name'],
-                         omniauth_params['resource_class'].underscore].compact.join('_').to_sym]
+                         omniauth_params['user_resource_class'].underscore].compact.join('_').to_sym]
       else
         request.env['devise.mapping']
       end
@@ -154,8 +154,8 @@ module DeviseTokenAuth
       # set crazy password for new oauth users. this is only used to prevent
         # access via email sign-in.
         p = SecureRandom.urlsafe_base64(nil, false)
-        @resource.password = p
-        @resource.password_confirmation = p
+        @user_resource.password = p
+        @user_resource.password_confirmation = p
     end
 
     def create_token_info
@@ -170,7 +170,7 @@ module DeviseTokenAuth
       @auth_params = {
         auth_token:     @token,
         client_id: @client_id,
-        uid:       @resource.uid,
+        uid:       @user_resource.uid,
         expiry:    @expiry,
         config:    @config
       }
@@ -178,8 +178,8 @@ module DeviseTokenAuth
       @auth_params
     end
 
-    def set_token_on_resource
-      @resource.tokens[@client_id] = {
+    def set_token_on_user_resource
+      @user_resource.tokens[@client_id] = {
         token: BCrypt::Password.create(@token),
         expiry: @expiry
       }
@@ -230,26 +230,26 @@ module DeviseTokenAuth
             </html>|
     end
 
-    def get_resource_from_auth_hash
+    def get_user_resource_from_auth_hash
       # find or create user by provider and provider uid
-      @resource = resource_class.where({
+      @user_resource = user_resource_class.where({
         uid:      auth_hash['uid'],
         provider: auth_hash['provider']
       }).first_or_initialize
 
-      if @resource.new_record?
+      if @user_resource.new_record?
         @oauth_registration = true
         set_random_password
       end
 
       # sync user info with provider, update/generate auth token
-      assign_provider_attrs(@resource, auth_hash)
+      assign_provider_attrs(@user_resource, auth_hash)
 
       # assign any additional (whitelisted) attributes
       extra_params = whitelisted_params
-      @resource.assign_attributes(extra_params) if extra_params
+      @user_resource.assign_attributes(extra_params) if extra_params
 
-      @resource
+      @user_resource
     end
 
   end
